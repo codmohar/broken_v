@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme {
+  --color-sidebar: #1B3C2D;
+  --color-sidebar-hover: #24503B;
+  --color-sidebar-active: #2B5F45;
+  --color-main-bg: #F0F2F1;
+  --color-card: #FFFFFF;
+  --color-card-border: #E5E7EB;
+  --color-heading: #111827;
+  --color-body: #4B5563;
+  --color-muted: #9CA3AF;
+  --color-label: #6B7280;
+  --color-green-accent: #16A34A;
+  --color-green-light: #F0FDF4;
+  --color-green-border: #BBF7D0;
+  --color-green-dark: #166534;
+  --color-blue-bar: #1E40AF;
+  --color-red-accent: #DC2626;
+  --color-red-bar: #7F1D1D;
+  --color-amber-accent: #D97706;
+
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+@layer base {
+  body {
+    @apply bg-main-bg text-body font-sans antialiased overflow-hidden;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+  }
+}
+
+@layer utilities {
+  .card {
+    @apply bg-card rounded-xl border border-card-border;
+  }
+
+  .card-green {
+    @apply bg-green-light rounded-xl border border-green-border;
+  }
+
+  .label-caps {
+    @apply font-mono text-[11px] font-semibold uppercase tracking-wider text-label;
+  }
+
+  .metric-value {
+    @apply text-4xl font-bold text-heading;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+}
