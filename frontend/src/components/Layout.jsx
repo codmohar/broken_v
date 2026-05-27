@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
+import AlertSystem from './AlertSystem';
 
 const navItems = [
   { path: '/', label: 'Overview', icon: 'dashboard' },
@@ -69,8 +70,9 @@ const Layout = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-main-bg">
+      <main className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-main-bg relative">
         <Outlet />
+        <AlertSystem />
       </main>
     </div>
   );

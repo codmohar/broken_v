@@ -1,133 +1,203 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import { sensorService } from '../services/api';
 
 const SoilAnalysis = () => {
-  const [metrics, setMetrics] = useState({
-    dryness: { value: 28, status: 'Sub-optimal', color: 'bg-amber-600' },
-    quality: { value: 84, status: 'Good', color: 'bg-green-600' },
-    ph: { value: 6.5, status: 'Neutral', color: 'bg-green-300' }
-  });
-  const [insights, setInsights] = useState([]);
+  const [sensors, setSensors] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
+    let intervalId;
+    const fetchSensors = async () => {
       try {
-        const [metricsRes, insightsRes] = await Promise.all([
-          axios.get('http://localhost:3000/api/soil/metrics'),
-          axios.get('http://localhost:3000/api/soil/insights')
-        ]);
-        setMetrics(metricsRes.data);
-        setInsights(insightsRes.data);
+        const data = await sensorService.getSensors();
+        setSensors(data);
       } catch (error) {
-        console.error("Error fetching soil data:", error);
-        // Fallback data
-        setInsights([
-          { id: 1, type: 'warning', title: 'Nitrogen Deficit Detected', desc: 'Zone 3 shows a 15% drop in N levels over 48h. Recommend applying targeted urea-based fertilizer.', color: 'bg-red-50/50 border-red-100', iconColor: 'text-amber-700' },
-          { id: 2, type: 'opacity', title: 'Moisture Optimization', desc: 'Current dryness at 28%. Scheduled pump activation at 18:00 will return levels to optimal 35%.', color: 'bg-gray-50 border-gray-100', iconColor: 'text-blue-700' }
-        ]);
+        console.error("Error fetching sensor data:", error);
+      } finally {
+        setLoading(false);
       }
     };
-    fetchData();
+
+    fetchSensors();
+    intervalId = setInterval(fetchSensors, 5000);
+
+    return () => clearInterval(intervalId);
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <span className="material-symbols-outlined animate-spin text-4xl text-green-500">autorenew</span>
+      </div>
+    );
+  }
+
+  if (!sensors) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 text-red-500">
+        <span className="material-symbols-outlined text-4xl mb-2">error</span>
+        <p>Failed to load soil telemetry data.</p>
+      </div>
+    );
+  }
+
+  // --- Rule-Based Logic ---
+  const t = sensors.temperature;
+  const h = sensors.humidity;
+  const m = sensors.soil_moisture;
+
+  // Fungal Risk
+  let fungalRisk = { level: 'Low', color: 'bg-green-100 text-green-700 border-green-200', icon: 'check_circle' };
+  if (h > 70 && t > 25) {
+    fungalRisk = { level: 'High', color: 'bg-red-100 text-red-700 border-red-200', icon: 'warning' };
+  } else if (h > 60 || t > 28) {
+    fungalRisk = { level: 'Medium', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: 'info' };
+  }
+
+  // Nutrient Status
+  let nutrientStatus = { status: 'Optimal', color: 'bg-green-100 text-green-700 border-green-200', icon: 'eco' };
+  if (m < 30 || m > 60) {
+    nutrientStatus = { status: 'Sub-optimal', color: 'bg-amber-100 text-amber-700 border-amber-200', icon: 'warning' };
+  }
+
+  // Soil Stress Index
+  let stressIndex = 0;
+  if (t > 30) stressIndex += 30;
+  if (t < 10) stressIndex += 30;
+  if (m < 25) stressIndex += 40;
+  if (h > 75) stressIndex += 20;
+  stressIndex = Math.min(100, stressIndex);
+
+  // Soil Quality
+  const soilQuality = 100 - stressIndex;
+
+  // AI Recommendation
+  let recommendation = "Soil parameters are currently stable. Maintain standard irrigation schedules.";
+  let recIcon = "check_circle";
+  let recColor = "text-green-600";
+  if (stressIndex > 50) {
+    recommendation = "Critical soil stress detected. Immediate intervention required to balance moisture and mitigate temperature effects.";
+    recIcon = "warning";
+    recColor = "text-red-400"; // Lightened for dark background
+  } else if (fungalRisk.level === 'High') {
+    recommendation = "High fungal risk due to elevated humidity and temperature. Reduce watering and improve air circulation.";
+    recIcon = "pest_control";
+    recColor = "text-red-400";
+  } else if (nutrientStatus.status === 'Sub-optimal') {
+    recommendation = "Moisture levels are affecting nutrient availability. Adjust irrigation to keep moisture between 30% and 60%.";
+    recIcon = "water_drop";
+    recColor = "text-amber-400";
+  }
 
   return (
     <div className="max-w-[1200px] mx-auto space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* AI Soil Visual Analysis */}
-        <div className="lg:col-span-2 card p-8">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-xl font-bold text-heading">AI Soil Visual Analysis</h2>
-            <div className="bg-green-100 text-green-700 text-[10px] font-bold px-3 py-1 rounded-full border border-green-200">
-              MODEL ACTIVE
-            </div>
-          </div>
-          
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-16 flex flex-col items-center justify-center bg-gray-50/50 mb-8">
-            <span className="material-symbols-outlined text-gray-400 text-[48px] mb-4">cloud_upload</span>
-            <p className="text-sm font-medium text-body mb-1">Drag and drop soil sample images here</p>
-            <p className="text-xs text-muted">or click to browse from device</p>
-          </div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-3xl font-bold text-heading mb-1">Soil Intelligence</h1>
+          <p className="text-sm text-body">Live analysis powered by real-time telemetry.</p>
+        </div>
+        <div className="bg-green-100 text-green-700 text-xs font-bold px-3 py-1.5 rounded-lg border border-green-200 flex items-center gap-1">
+          <span className="material-symbols-outlined text-[14px]">sensors</span>
+          LIVE SYNC
+        </div>
+      </div>
 
-          <div className="bg-gray-50 rounded-xl p-4 flex items-center gap-4 border border-gray-100">
-            <div className="w-12 h-12 rounded-lg overflow-hidden border border-gray-200">
-              <img src="/plant_scans.png" alt="Sample" className="w-full h-full object-cover" />
+      {/* Top Cards: Quality & Stress */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="card p-8 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-6">
+            <span className="label-caps">OVERALL SOIL QUALITY</span>
+            <span className="material-symbols-outlined text-green-500 text-2xl">workspace_premium</span>
+          </div>
+          <div>
+            <div className="flex items-end gap-2 mb-2">
+              <span className="text-5xl font-black text-heading leading-none">{soilQuality}</span>
+              <span className="text-lg text-muted font-bold mb-1">/ 100</span>
             </div>
-            <div>
-              <p className="text-[13px] font-bold text-heading">Sample_Alpha_094.jpg</p>
-              <p className="text-[11px] text-green-600 font-semibold uppercase tracking-wider">Status: Optimal Texture</p>
+            <div className="w-full bg-gray-100 rounded-full h-2.5">
+              <div className={`h-2.5 rounded-full transition-all duration-500 ${soilQuality > 70 ? 'bg-green-500' : soilQuality > 40 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${soilQuality}%` }}></div>
             </div>
           </div>
         </div>
 
-        {/* Actionable Insights */}
+        <div className="card p-8 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-6">
+            <span className="label-caps">SOIL STRESS INDEX</span>
+            <span className={`material-symbols-outlined text-2xl ${stressIndex > 50 ? 'text-red-500' : stressIndex > 20 ? 'text-amber-500' : 'text-green-500'}`}>ssid_chart</span>
+          </div>
+          <div>
+            <div className="flex items-end gap-2 mb-2">
+              <span className="text-5xl font-black text-heading leading-none">{stressIndex}</span>
+              <span className="text-lg text-muted font-bold mb-1">/ 100</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2.5">
+              <div className={`h-2.5 rounded-full transition-all duration-500 ${stressIndex > 50 ? 'bg-red-500' : stressIndex > 20 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${stressIndex}%` }}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Middle Grid: Detailed Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Water Retention */}
         <div className="card p-6">
-          <div className="flex items-center gap-2 mb-6">
-            <span className="material-symbols-outlined text-green-600 text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>
-              settings_suggest
+          <div className="flex items-center gap-2 mb-4">
+            <span className="material-symbols-outlined text-blue-500">water_drop</span>
+            <h3 className="font-bold text-heading">Water Retention</h3>
+          </div>
+          <div className="flex items-end gap-2 mb-3">
+            <span className="text-3xl font-black text-heading leading-none">{m}%</span>
+          </div>
+          <p className="text-xs text-body">Derived from live moisture telemetry.</p>
+        </div>
+
+        {/* Nutrient Status */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <span className={`material-symbols-outlined ${nutrientStatus.status === 'Optimal' ? 'text-green-500' : 'text-amber-500'}`}>{nutrientStatus.icon}</span>
+            <h3 className="font-bold text-heading">Nutrient Status</h3>
+          </div>
+          <div className="mb-3">
+             <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider ${nutrientStatus.color}`}>
+              {nutrientStatus.status}
             </span>
-            <h2 className="text-lg font-bold text-heading">Actionable Insights</h2>
           </div>
+          <p className="text-xs text-body mt-4">Based on soil moisture capacity.</p>
+        </div>
 
-          <div className="space-y-4">
-            {insights.map(insight => (
-              <div key={insight.id} className={`${insight.color} border rounded-xl p-5`}>
-                <div className={`flex items-center gap-2 ${insight.iconColor} mb-3`}>
-                  <span className="material-symbols-outlined text-[18px]">{insight.type}</span>
-                  <span className="text-[11px] font-bold uppercase tracking-wider">{insight.title}</span>
-                </div>
-                <p className="text-[12px] text-body leading-relaxed">
-                  {insight.desc}
-                </p>
-              </div>
-            ))}
+        {/* Fungal Risk */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <span className={`material-symbols-outlined ${fungalRisk.level === 'High' ? 'text-red-500' : fungalRisk.level === 'Medium' ? 'text-amber-500' : 'text-green-500'}`}>
+              bug_report
+            </span>
+            <h3 className="font-bold text-heading">Fungal Risk</h3>
+          </div>
+           <div className="mb-3">
+             <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider ${fungalRisk.color}`}>
+              {fungalRisk.level}
+            </span>
+          </div>
+          <p className="text-xs text-body mt-4">Analyzed from temp and humidity trends.</p>
+        </div>
+      </div>
+
+      {/* AI Recommendation Box */}
+      <div className="card p-6 bg-gradient-to-br from-sidebar to-sidebar-hover text-white">
+        <div className="flex items-center gap-2 mb-4 opacity-90">
+          <span className="material-symbols-outlined text-xl">psychology</span>
+          <h2 className="text-sm font-bold uppercase tracking-wider">AI Insight & Recommendation</h2>
+        </div>
+        <div className="bg-white/10 rounded-xl p-5 border border-white/20 backdrop-blur-sm flex items-start gap-4">
+          <span className={`material-symbols-outlined text-3xl mt-0.5 ${recColor} drop-shadow-sm`}>{recIcon}</span>
+          <div>
+            <p className="text-sm leading-relaxed font-medium">
+              {recommendation}
+            </p>
           </div>
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Soil Dryness */}
-        <div className="card p-6">
-          <div className="flex flex-col gap-1 mb-4">
-            <span className="label-caps">SOIL DRYNESS</span>
-            <div className="flex items-baseline gap-3">
-              <span className="metric-value">{metrics.dryness.value}%</span>
-              <span className="text-xs text-body font-medium uppercase tracking-wider">{metrics.dryness.status}</span>
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-2">
-            <div className={`${metrics.dryness.color} h-2 rounded-full`} style={{ width: `${metrics.dryness.value}%` }}></div>
-          </div>
-        </div>
-
-        {/* Quality Index */}
-        <div className="card p-6">
-          <div className="flex flex-col gap-1 mb-4">
-            <span className="label-caps">OVERALL QUALITY INDEX</span>
-            <div className="flex items-baseline gap-3">
-              <span className="metric-value">{metrics.quality.value}/100</span>
-              <span className="text-xs text-green-600 font-bold uppercase tracking-wider">{metrics.quality.status}</span>
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-2">
-            <div className={`${metrics.quality.color} h-2 rounded-full`} style={{ width: `${metrics.quality.value}%` }}></div>
-          </div>
-        </div>
-
-        {/* PH Level */}
-        <div className="card p-6">
-          <div className="flex flex-col gap-1 mb-4">
-            <span className="label-caps">PH LEVEL</span>
-            <div className="flex items-baseline gap-3">
-              <span className="metric-value">{metrics.ph.value}</span>
-              <span className="text-xs text-body font-medium uppercase tracking-wider">{metrics.ph.status}</span>
-            </div>
-          </div>
-          <div className="w-full bg-gray-100 rounded-full h-2">
-            <div className={`${metrics.ph.color} h-2 rounded-full`} style={{ width: `${metrics.ph.value * 10}%` }}></div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
