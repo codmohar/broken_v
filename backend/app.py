@@ -1,4 +1,5 @@
 import datetime
+import json
 import random
 import io
 import os
@@ -73,6 +74,31 @@ class LocalWeatherResponse(BaseModel):
     rain_next_24h_mm: float
     updated_at: str
     insight: str
+    forecast: List[ForecastDetail] = []
+
+class AdviceRequest(BaseModel):
+    context: str
+    weather: Optional[Dict[str, Any]] = None
+    disease: Optional[Dict[str, Any]] = None
+    sensors: Optional[Dict[str, Any]] = None
+
+class AdviceResponse(BaseModel):
+    advice: str
+    source: str
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    message: str
+    history: List[ChatMessage] = []
+    weather: Optional[Dict[str, Any]] = None
+    sensors: Optional[Dict[str, Any]] = None
+
+class ChatResponse(BaseModel):
+    reply: str
+    source: str
 
 # Create FastAPI app
 app = FastAPI(title="AgroGuardian AI Backend", version="1.0.0")
@@ -86,9 +112,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "bcec19ce98715c7518b35bca2829d233")
+def load_env_file():
+    for env_path in [
+        os.path.join(os.path.dirname(__file__), ".env"),
+        os.path.join(os.path.dirname(__file__), "..", ".env"),
+    ]:
+        if not os.path.exists(env_path):
+            continue
+        with open(env_path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+load_env_file()
+
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 
 def fetch_openweather_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    if not OPENWEATHER_API_KEY:
+        raise HTTPException(status_code=503, detail="OPENWEATHER_API_KEY is not configured")
+
     query = urllib.parse.urlencode({**params, "appid": OPENWEATHER_API_KEY, "units": "metric"})
     url = f"https://api.openweathermap.org/data/2.5/{path}?{query}"
 
@@ -101,6 +149,49 @@ def fetch_openweather_json(path: str, params: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"OpenWeather request failed: {detail}") from exc
     except urllib.error.URLError as exc:
         raise HTTPException(status_code=502, detail=f"OpenWeather request failed: {exc.reason}") from exc
+
+def fetch_gemini_advice(prompt: str) -> str:
+    if not GEMINI_API_KEY:
+        return ""
+
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{urllib.parse.quote(GEMINI_MODEL)}:generateContent?key={urllib.parse.quote(GEMINI_API_KEY)}"
+    )
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": prompt
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 220,
+        },
+    }
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+        return ""
+
+    candidates = data.get("candidates", [])
+    if not candidates:
+        return ""
+    parts = candidates[0].get("content", {}).get("parts", [])
+    return " ".join(part.get("text", "") for part in parts).strip()
 
 def map_weather_icon(openweather_icon: str, condition_id: int) -> str:
     if 200 <= condition_id < 300:
@@ -125,6 +216,53 @@ def build_weather_insight(rain_probability: int, rain_mm: float, humidity: int, 
     if rain_probability <= 20:
         return "Low rain probability in the near term. Maintain planned irrigation if soil moisture trends downward."
     return "Weather is stable for routine operations. Keep monitoring humidity, wind, and soil moisture trends."
+
+def build_local_forecast(forecast_items: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    grouped: Dict[str, Dict[str, Any]] = {}
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+
+    for item in forecast_items:
+        timestamp = int(item.get("dt", 0))
+        dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
+        date_key = dt.date().isoformat()
+        main = item.get("main", {})
+        weather = item.get("weather", [{}])[0]
+        temp = float(main.get("temp", 0))
+        rain = item.get("pop", 0) * 100
+
+        entry = grouped.setdefault(date_key, {
+            "date": dt.date(),
+            "temps": [],
+            "rain": 0,
+            "icon": weather.get("icon", "02d"),
+            "weather_id": int(weather.get("id", 801)),
+        })
+        entry["temps"].append(temp)
+        entry["rain"] = max(entry["rain"], rain)
+        if 11 <= dt.hour <= 15:
+            entry["icon"] = weather.get("icon", entry["icon"])
+            entry["weather_id"] = int(weather.get("id", entry["weather_id"]))
+
+    details = []
+    for entry in sorted(grouped.values(), key=lambda item: item["date"])[:7]:
+        day_delta = (entry["date"] - today).days
+        if day_delta == 0:
+            day = "Today"
+        elif day_delta == 1:
+            day = "Tomorrow"
+        else:
+            day = entry["date"].strftime("%a")
+
+        temps = entry["temps"] or [0]
+        details.append({
+            "day": day,
+            "high": f"{round(max(temps))}°",
+            "low": f"{round(min(temps))}°",
+            "rain": f"{round(entry['rain'])}%",
+            "icon": map_weather_icon(entry["icon"], entry["weather_id"]),
+        })
+
+    return details
 
 # ── Lazy Model Loading ────────────────────────────────────────────────────────
 model = None
@@ -343,13 +481,17 @@ def get_weather():
     }
 
 @app.get("/api/weather/local", response_model=LocalWeatherResponse)
-def get_local_weather(lat: Optional[float] = None, lon: Optional[float] = None):
-    if lat is None or lon is None:
+def get_local_weather(lat: Optional[float] = None, lon: Optional[float] = None, q: Optional[str] = None):
+    if q:
+        weather_params = {"q": q}
+    elif lat is not None and lon is not None:
+        weather_params = {"lat": lat, "lon": lon}
+    else:
         # Central India fallback when browser geolocation is unavailable.
-        lat, lon = 20.5937, 78.9629
+        weather_params = {"lat": 20.5937, "lon": 78.9629}
 
-    current = fetch_openweather_json("weather", {"lat": lat, "lon": lon})
-    forecast = fetch_openweather_json("forecast", {"lat": lat, "lon": lon, "cnt": 8})
+    current = fetch_openweather_json("weather", weather_params)
+    forecast = fetch_openweather_json("forecast", {**weather_params, "cnt": 40})
 
     weather = current.get("weather", [{}])[0]
     main = current.get("main", {})
@@ -381,7 +523,60 @@ def get_local_weather(lat: Optional[float] = None, lon: Optional[float] = None):
             tz=datetime.timezone.utc,
         ).isoformat(),
         "insight": build_weather_insight(rain_probability, rain_next_24h_mm, humidity, temperature),
+        "forecast": build_local_forecast(forecast_items),
     }
+
+@app.post("/api/ai/advice", response_model=AdviceResponse)
+def get_ai_advice(request: AdviceRequest):
+    prompt = (
+        "You are AgroGuardian AI, an agricultural assistant. Give concise, practical farm advice. "
+        "Avoid medical/legal disclaimers. Use the supplied context only.\n\n"
+        f"Context: {request.context}\n"
+        f"Weather: {request.weather or {}}\n"
+        f"Disease prediction: {request.disease or {}}\n"
+        f"Sensors: {request.sensors or {}}\n\n"
+        "Return 2-4 short action-focused sentences."
+    )
+    advice = fetch_gemini_advice(prompt)
+    if advice:
+        return {"advice": advice, "source": "gemini"}
+
+    weather = request.weather or {}
+    sensors = request.sensors or {}
+    disease = request.disease or {}
+    fallback = "Monitor crop health, soil moisture, and local weather before changing irrigation or treatment plans."
+    if disease.get("disease"):
+        fallback = f"{disease['disease']} was detected. Follow the treatment recommendation and rescan after field action."
+    elif weather.get("insight"):
+        fallback = weather["insight"]
+    elif sensors.get("soil_moisture", 50) < 35:
+        fallback = "Soil moisture is trending low. Schedule irrigation soon and recheck after watering."
+
+    return {"advice": fallback, "source": "fallback"}
+
+@app.post("/api/ai/chat", response_model=ChatResponse)
+def chat_with_ai(request: ChatRequest):
+    recent_history = "\n".join(
+        f"{item.role}: {item.content}" for item in request.history[-8:] if item.content.strip()
+    )
+    prompt = (
+        "You are AgroGuardian AI, a practical crop-care chatbot for farmers. "
+        "Answer clearly, briefly, and actionably. Use simple language and mention when a leaf image or expert inspection is needed.\n\n"
+        f"Current weather context: {request.weather or {}}\n"
+        f"Current sensor context: {request.sensors or {}}\n"
+        f"Recent chat:\n{recent_history}\n\n"
+        f"Farmer question: {request.message}\n\n"
+        "Give the best next steps in 2-5 short sentences."
+    )
+    reply = fetch_gemini_advice(prompt)
+    if reply:
+        return {"reply": reply, "source": "gemini"}
+
+    fallback = (
+        "I could not reach Gemini right now. Check the crop leaves closely, compare symptoms with recent weather, "
+        "and upload a clear leaf image in Disease Detection for model-based guidance."
+    )
+    return {"reply": fallback, "source": "fallback"}
 
 @app.get("/api/sensors", response_model=SensorResponse)
 def get_sensors():
