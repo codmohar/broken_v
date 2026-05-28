@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { sensorService } from '../services/api';
+import apiClient, { sensorService } from '../services/api';
 
 const Overview = () => {
   const [pumpOn, setPumpOn] = useState(false);
@@ -17,7 +16,7 @@ const Overview = () => {
   useEffect(() => {
     const checkBackend = async () => {
       try {
-        const response = await axios.get('http://localhost:3000/api/health');
+        const response = await apiClient.get('/health');
         if (response.data.status === 'ok') {
           setBackendStatus('System status is optimal. Backend connected.');
           setStatusColor('bg-green-500');

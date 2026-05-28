@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import apiClient from '../services/api';
 
 const WeatherForecast = () => {
   const [forecast, setForecast] = useState([]);
@@ -8,7 +8,7 @@ const WeatherForecast = () => {
   useEffect(() => {
     const fetchWeather = async () => {
       try {
-        const response = await axios.get('http://localhost:3000/api/weather');
+        const response = await apiClient.get('/weather');
         setForecast(response.data.forecast);
       } catch (error) {
         console.error("Error fetching weather:", error);

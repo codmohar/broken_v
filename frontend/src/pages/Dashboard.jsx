@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import apiClient from '../services/api';
 
 const Dashboard = () => {
   const [insights, setInsights] = useState([]);
@@ -7,7 +7,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchInsights = async () => {
       try {
-        const response = await axios.get('http://localhost:3000/api/dashboard/insights');
+        const response = await apiClient.get('/dashboard/insights');
         setInsights(response.data);
       } catch (error) {
         console.error("Error fetching dashboard insights:", error);

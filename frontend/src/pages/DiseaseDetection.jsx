@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import axios from 'axios';
+import apiClient from '../services/api';
 import { diseaseService } from '../services/api';
 
 const DiseaseDetection = () => {
@@ -15,7 +15,7 @@ const DiseaseDetection = () => {
   useEffect(() => {
     const fetchScans = async () => {
       try {
-        const response = await axios.get('http://localhost:3000/api/scans');
+        const response = await apiClient.get('/scans');
         setRecentScans(response.data);
       } catch (error) {
         console.error("Error fetching scans:", error);
