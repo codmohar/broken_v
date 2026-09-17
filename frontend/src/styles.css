@@ -425,6 +425,41 @@ input {
   font-size: 24px;
 }
 
+.suggestion-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #bfe5ce;
+  border-radius: 8px;
+  background: var(--green-soft);
+}
+
+.suggestion-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #064b29;
+}
+
+.suggestion-heading .material-symbols-outlined {
+  color: var(--green);
+}
+
+.suggestion-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 24px;
+  color: #123b2a;
+  line-height: 1.45;
+}
+
+.suggestion-list li::marker {
+  color: var(--green);
+  font-weight: 800;
+}
+
 .risk-badge {
   display: inline-block;
   margin-bottom: 12px;

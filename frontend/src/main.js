@@ -38,6 +38,20 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
+function treatmentToSteps(treatment) {
+  return String(treatment || '')
+    .split(/(?<=[.!?])\s+/)
+    .map((step) => step.trim())
+    .filter(Boolean);
+}
+
+function isGenericDiseaseAdvice(advice, disease) {
+  const normalized = String(advice || '').toLowerCase();
+  const diseaseName = String(disease || '').toLowerCase();
+  return normalized.includes('follow the treatment recommendation')
+    || normalized === `${diseaseName} was detected. follow the treatment recommendation and rescan after field action.`;
+}
+
 function showView(viewName) {
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === viewName));
   $$('.view').forEach((view) => view.classList.toggle('active', view.id === `view-${viewName}`));
@@ -299,17 +313,37 @@ function setupDiseaseDetection() {
     $('#disease-result').innerHTML = '<p>Analyzing image...</p>';
     try {
       const data = await api('/detect-disease', { method: 'POST', body: formData });
+      const treatmentSteps = treatmentToSteps(data.treatment);
       $('#disease-result').innerHTML = `
-        <span class="risk-badge">${data.confidence}% confidence</span>
-        <h2 class="result-title">${data.disease}</h2>
-        <p>${data.treatment}</p>
+        <span class="risk-badge">${escapeHtml(data.confidence)}% confidence</span>
+        <h2 class="result-title">${escapeHtml(data.disease)}</h2>
+        <div class="suggestion-card">
+          <div class="suggestion-heading">
+            <span class="material-symbols-outlined">recommend</span>
+            <strong>Suggested action plan</strong>
+          </div>
+          <ul class="suggestion-list">
+            ${treatmentSteps.map((step) => `<li>${escapeHtml(step)}</li>`).join('')}
+          </ul>
+        </div>
       `;
-      const advice = await api('/ai/advice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ context: 'Disease detection result', disease: data, weather: latestWeather }),
-      });
-      $('#disease-result').innerHTML += `<div class="advice-box green"><span class="material-symbols-outlined">auto_awesome</span><p>${advice.advice}</p></div>`;
+      try {
+        const advice = await api('/ai/advice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context: 'Disease detection result', disease: data, weather: latestWeather }),
+        });
+        if (advice.advice && !isGenericDiseaseAdvice(advice.advice, data.disease)) {
+          $('#disease-result').innerHTML += `
+            <div class="advice-box green">
+              <span class="material-symbols-outlined">auto_awesome</span>
+              <p>${escapeHtml(advice.advice)}</p>
+            </div>
+          `;
+        }
+      } catch {
+        // The model treatment above is the primary recommendation; AI enrichment is optional.
+      }
     } catch (error) {
       $('#disease-result').innerHTML = '<p>Image analysis failed. Check backend model and try again.</p>';
     }
